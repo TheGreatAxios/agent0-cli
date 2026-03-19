@@ -1,0 +1,62 @@
+{
+  "name": "agent0-cli",
+  "version": "1.0.0",
+  "description": "CLI for agent0-ts SDK - agent portability, discovery and trust",
+  "type": "module",
+  "main": "dist/cli.js",
+  "module": "dist/cli.js",
+  "bin": {
+    "ag0": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc && chmod +x dist/cli.js",
+    "build:bun": "bun build ./src/cli.ts --compile --outfile ./dist/ag0",
+    "build:bun:cross": "bun run scripts/build-bun.ts",
+    "dev": "tsc --watch",
+    "dev:bun": "bun --watch src/cli.ts",
+    "start": "node dist/cli.js",
+    "start:bun": "bun dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "typecheck:bun": "bunx tsc --noEmit",
+    "lint": "eslint src/**/*.ts",
+    "test": "vitest",
+    "test:bun": "bun test",
+    "incur:gen": "incur gen",
+    "install:bun": "bun install"
+  },
+  "dependencies": {
+    "agent0-sdk": "^1.7.0",
+    "incur": "^0.4.0",
+    "zod": "^3.23.0",
+    "viem": "^2.21.0",
+    "keytar": "^7.9.0",
+    "chalk": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/bun": "latest",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "eslint": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "keywords": [
+    "agent0",
+    "agent",
+    "sdk",
+    "cli",
+    "mcp",
+    "a2a",
+    "erc-8004",
+    "blockchain",
+    "ethereum",
+    "bun"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thegreataxios/agent0-cli.git"
+  }
+}

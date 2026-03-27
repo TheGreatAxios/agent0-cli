@@ -2,7 +2,7 @@
 
 /**
  * Agent0 CLI - Main Entry Point
- * 
+ *
  * Architecturally refactored with:
  * - Layered middleware system
  * - Dependency injection via vars
@@ -10,6 +10,7 @@
  */
 
 import { Cli, z } from 'incur'
+import type { MiddlewareHandler } from 'incur'
 import { resolveWallet } from './lib/wallet.js'
 import { ConfigManager } from './lib/config.js'
 import { createSdk } from './lib/sdk.js'
@@ -27,14 +28,16 @@ import { a2aGroup } from './commands/a2a.js'
 // CLI Definition
 // ============================================================================
 
+const varsSchema = z.object({
+  config: z.custom<ConfigManager>(),
+  wallet: z.custom<CliVars['wallet']>().optional(),
+  sdk: z.custom<CliVars['sdk']>().optional(),
+})
+
 const cli = Cli.create('ag0', {
   version: '1.0.0',
   description: 'CLI for agent0-ts SDK - agent portability, discovery and trust',
-  vars: z.object({
-    config: z.custom<ConfigManager>(),
-    wallet: z.custom<CliVars['wallet']>().optional(),
-    sdk: z.custom<CliVars['sdk']>().optional(),
-  }),
+  vars: varsSchema,
   sync: {
     depth: 1,
     include: ['_root'],
@@ -52,27 +55,27 @@ const cli = Cli.create('ag0', {
 // ============================================================================
 
 // Layer 1: Config initialization
-cli.use(async (c, next) => {
+cli.use((async (c, next) => {
   c.set('config', new ConfigManager())
   await next()
-})
+}) as MiddlewareHandler<typeof varsSchema>)
 
 // Layer 2: Wallet resolution (depends on config)
-cli.use(async (c, next) => {
+cli.use((async (c, next) => {
   const wallet = await resolveWallet(
     c.var.config,
     c.options as Record<string, unknown>
   )
   if (wallet) c.set('wallet', wallet)
   await next()
-})
+}) as MiddlewareHandler<typeof varsSchema>)
 
 // Layer 3: SDK initialization (depends on wallet + config)
-cli.use(async (c, next) => {
+cli.use((async (c, next) => {
   const sdk = createSdk(c.var.config, c.var.wallet || null)
   c.set('sdk', sdk)
   await next()
-})
+}) as MiddlewareHandler<typeof varsSchema>)
 
 // ============================================================================
 // Command Groups

@@ -43,10 +43,9 @@ export interface ConfigData {
 
 export class ConfigManager {
   private data: ConfigData = {}
-  private encryptionKey: Buffer | null = null
 
   constructor() {
-    this.load()
+    void this.load()
   }
 
   async load(): Promise<void> {
@@ -69,8 +68,8 @@ export class ConfigManager {
     return this.data[key] as T | undefined
   }
 
-  set<T>(key: keyof ConfigData, value: T): void {
-    this.data[key] = value as unknown as ConfigData[keyof ConfigData]
+  set<T extends keyof ConfigData>(key: T, value: ConfigData[T]): void {
+    this.data[key] = value
   }
 
   async addWallet(name: string, type: WalletConfig['type'], value: string, password: string): Promise<void> {
@@ -133,10 +132,15 @@ export class ConfigManager {
       throw new Error('Invalid encrypted data format')
     }
 
+    const [, ivHex, tagHex, encHex] = parts
+    if (!ivHex || !tagHex || !encHex) {
+      throw new Error('Invalid encrypted data format')
+    }
+
     const key = scryptSync(password, 'salt', 32)
-    const iv = Buffer.from(parts[1], 'hex')
-    const authTag = Buffer.from(parts[2], 'hex')
-    const encrypted = parts[3]
+    const iv = Buffer.from(ivHex, 'hex')
+    const authTag = Buffer.from(tagHex, 'hex')
+    const encrypted = encHex
 
     const decipher = createDecipheriv('aes-256-gcm', key, iv)
     decipher.setAuthTag(authTag)

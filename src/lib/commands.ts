@@ -1,6 +1,6 @@
 /**
  * Command Factory
- * 
+ *
  * DRY command registration with common patterns abstracted
  */
 
@@ -35,15 +35,21 @@ interface CommandContext<TArgs extends z.ZodTypeAny, TOptions extends z.ZodTypeA
 
 export function createCommand<TArgs extends z.ZodTypeAny, TOptions extends z.ZodTypeAny, TOutput>(
   spec: CommandSpec<TArgs, TOptions, TOutput>
-): Parameters<Cli<unknown>['command']>[1] {
+): any {
   return {
     description: spec.description,
     args: spec.args,
     options: spec.options,
     output: spec.output,
-    run: async (ctx) => {
+    run: async (ctx: {
+      args: unknown
+      options: unknown
+      var: CliVars
+      ok: (data: unknown, meta?: { cta?: CtaSpec }) => unknown
+      error: (err: { code: string; message: string; retryable?: boolean; cta?: CtaSpec }) => never
+    }) => {
       // Auto-check SDK if required
-      if (spec.requireSdk && !ctx.var.sdk) {
+      if (spec.requireSdk && !(ctx.var as CliVars).sdk) {
         return ctx.error({
           code: 'NO_SDK',
           message: 'SDK not initialized. Configure wallet and chain first.',
@@ -60,15 +66,15 @@ export function createCommand<TArgs extends z.ZodTypeAny, TOptions extends z.Zod
 
       try {
         const result = await spec.run({
-          args: ctx.args,
-          options: ctx.options,
+          args: ctx.args as z.infer<TArgs>,
+          options: ctx.options as z.infer<TOptions>,
           vars: ctx.var as CliVars,
-          ok: ctx.ok,
-          error: ctx.error,
+          ok: ctx.ok as CommandContext<TArgs, TOptions>['ok'],
+          error: ctx.error as CommandContext<TArgs, TOptions>['error'],
         })
 
         if (!result.success) {
-          return ctx.error(result.error)
+          return ctx.error(result.error as { code: string; message: string; retryable?: boolean; cta?: CtaSpec })
         }
 
         if (result.cta) {
@@ -92,7 +98,7 @@ export function createCommand<TArgs extends z.ZodTypeAny, TOptions extends z.Zod
 // Group Factory
 // ============================================================================
 
-export function createGroup(name: string, description: string): Cli<unknown> {
+export function createGroup(name: string, description: string): any {
   return Cli.create(name, { description })
 }
 

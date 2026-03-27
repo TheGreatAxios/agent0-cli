@@ -8,7 +8,7 @@ import { privateKeyToAccount, mnemonicToAccount, type Account } from 'viem/accou
 import { createWalletClient, http, type WalletClient, type Chain, defineChain } from 'viem'
 import { mainnet, sepolia, polygon, base } from 'viem/chains'
 import type { ConfigManager } from './config.js'
-import { CHAINS, type WalletType, WALLET_TYPES } from '../types/index.js'
+import { CHAINS, type WalletType } from '../types/index.js'
 
 // ============================================================================
 // Chain Definitions

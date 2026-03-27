@@ -4,6 +4,7 @@
  * Refactored with unified search and discovery patterns
  */
 
+import type { AgentSummary as SdkAgentSummary } from 'agent0-sdk'
 import { z } from 'zod'
 import { createCommand, createGroup, PaginationOptions } from '../lib/commands.js'
 import { createError, wrapSdkError } from '../lib/errors.js'
@@ -31,36 +32,38 @@ const SearchAgentsOptions = PaginationOptions.extend({
 // Helper: Transform SDK result to typed AgentSummary
 // ============================================================================
 
-function transformAgentSummary(agent: Record<string, unknown>): AgentSummary {
-  return {
-    agentId: agent.agentId as string,
-    chainId: agent.chainId as number,
-    name: agent.name as string,
-    description: agent.description as string,
-    active: agent.active as boolean,
-    image: agent.image as string | undefined,
-    owners: (agent.owners as string[]) || [],
-    operators: (agent.operators as string[]) || [],
-    endpoints: {
-      mcp: agent.mcp as string | undefined,
-      a2a: agent.a2a as string | undefined,
-      web: agent.web as string | undefined,
-      email: agent.email as string | undefined,
-      ens: agent.ens as string | undefined,
-    },
-    supportedTrusts: (agent.supportedTrusts as string[]) || [],
-    mcpTools: (agent.mcpTools as string[]) || [],
-    mcpPrompts: (agent.mcpPrompts as string[]) || [],
-    mcpResources: (agent.mcpResources as string[]) || [],
-    a2aSkills: (agent.a2aSkills as string[]) || [],
-    oasfSkills: (agent.oasfSkills as string[]) || [],
-    oasfDomains: (agent.oasfDomains as string[]) || [],
-    feedbackCount: agent.feedbackCount as number | undefined,
-    averageValue: agent.averageValue as number | undefined,
-    createdAt: agent.createdAt as number | undefined,
-    updatedAt: agent.updatedAt as number | undefined,
-    x402support: (agent.x402support as boolean) || false,
+function transformAgentSummary(agent: SdkAgentSummary): AgentSummary {
+  const endpoints: AgentSummary['endpoints'] = {}
+  if (agent.mcp !== undefined) endpoints.mcp = agent.mcp
+  if (agent.a2a !== undefined) endpoints.a2a = agent.a2a
+  if (agent.web !== undefined) endpoints.web = agent.web
+  if (agent.email !== undefined) endpoints.email = agent.email
+  if (agent.ens !== undefined) endpoints.ens = agent.ens
+
+  const row: AgentSummary = {
+    agentId: agent.agentId,
+    chainId: agent.chainId,
+    name: agent.name,
+    description: agent.description,
+    active: agent.active,
+    owners: agent.owners || [],
+    operators: agent.operators || [],
+    endpoints,
+    supportedTrusts: agent.supportedTrusts || [],
+    mcpTools: agent.mcpTools || [],
+    mcpPrompts: agent.mcpPrompts || [],
+    mcpResources: agent.mcpResources || [],
+    a2aSkills: agent.a2aSkills || [],
+    oasfSkills: agent.oasfSkills || [],
+    oasfDomains: agent.oasfDomains || [],
+    x402support: agent.x402support || false,
   }
+  if (agent.image !== undefined) row.image = agent.image
+  if (agent.feedbackCount !== undefined) row.feedbackCount = agent.feedbackCount
+  if (agent.averageValue !== undefined) row.averageValue = agent.averageValue
+  if (agent.createdAt !== undefined) row.createdAt = agent.createdAt
+  if (agent.updatedAt !== undefined) row.updatedAt = agent.updatedAt
+  return row
 }
 
 // ============================================================================
@@ -76,7 +79,7 @@ const searchAgents = createCommand({
     agents: z.array(z.custom<AgentSummary>()),
   }),
   requireSdk: true,
-  run: async ({ options, vars, ok, error }) => {
+  run: async ({ options, vars, ok }) => {
     try {
       const filters: Record<string, unknown> = {}
 
@@ -100,10 +103,11 @@ const searchAgents = createCommand({
       }
 
       // Handle feedback filters
-      if (options['min-feedback'] || options['feedback-tag']) {
-        filters.feedback = {}
-        if (options['min-feedback']) filters.feedback.minValue = options['min-feedback']
-        if (options['feedback-tag']) filters.feedback.tag = options['feedback-tag']
+      if (options['min-feedback'] !== undefined || options['feedback-tag']) {
+        const fb: { minValue?: number; tag?: string } = {}
+        if (options['min-feedback'] !== undefined) fb.minValue = options['min-feedback']
+        if (options['feedback-tag']) fb.tag = options['feedback-tag']
+        filters.feedback = fb
       }
 
       const results = await vars.sdk!.searchAgents(filters)
@@ -124,10 +128,17 @@ const searchAgent = createCommand({
   args: z.object({ 'agent-id': z.string() }),
   output: z.custom<AgentSummary>(),
   requireSdk: true,
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const agent = await vars.sdk!.getAgent(args['agent-id'])
-      return ok(transformAgentSummary(agent as Record<string, unknown>))
+      if (!agent) {
+        return createError({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent "${args['agent-id']}" not found`,
+          retryable: false,
+        })
+      }
+      return ok(transformAgentSummary(agent))
     } catch (err) {
       return wrapSdkError(err, 'SEARCH_ERROR')
     }

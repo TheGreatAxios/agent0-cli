@@ -7,6 +7,13 @@
 import { Cli, z } from 'incur'
 import type { CliVars, ErrorResult, CtaSpec } from '../types/index.js'
 
+/** incur's `ok()` / `error()` return tagged objects (not `{ success, data }`). */
+const INCUR_SENTINEL = Symbol.for('incur.sentinel')
+
+function isIncurSentinelResult(value: unknown): value is Record<typeof INCUR_SENTINEL, 'ok' | 'error'> {
+  return typeof value === 'object' && value !== null && INCUR_SENTINEL in value
+}
+
 // ============================================================================
 // Command Factory Types
 // ============================================================================
@@ -18,15 +25,16 @@ interface CommandSpec<TArgs extends z.ZodTypeAny, TOptions extends z.ZodTypeAny,
   options?: TOptions
   output?: z.ZodType<TOutput>
   requireSdk?: boolean
-  run: (ctx: CommandContext<TArgs, TOptions>) => Promise<{ success: true; data: TOutput; cta?: CtaSpec } | ErrorResult>
+  /** Use `ok` / `error` from context (incur sentinels), or return `ErrorResult` from helpers like `wrapSdkError`. */
+  run: (ctx: CommandContext<TArgs, TOptions>) => Promise<unknown>
 }
 
 interface CommandContext<TArgs extends z.ZodTypeAny, TOptions extends z.ZodTypeAny> {
   args: z.infer<TArgs>
   options: z.infer<TOptions>
   vars: CliVars
-  ok: <T>(data: T, meta?: { cta?: CtaSpec }) => { success: true; data: T }
-  error: (err: { code: string; message: string; retryable?: boolean; cta?: CtaSpec }) => { success: false; error: unknown }
+  ok: <T>(data: T, meta?: { cta?: CtaSpec }) => unknown
+  error: (err: { code: string; message: string; retryable?: boolean; cta?: CtaSpec }) => unknown
 }
 
 // ============================================================================
@@ -73,15 +81,23 @@ export function createCommand<TArgs extends z.ZodTypeAny, TOptions extends z.Zod
           error: ctx.error as CommandContext<TArgs, TOptions>['error'],
         })
 
-        if (!result.success) {
-          return ctx.error(result.error as { code: string; message: string; retryable?: boolean; cta?: CtaSpec })
+        if (isIncurSentinelResult(result)) {
+          return result
         }
 
-        if (result.cta) {
-          return ctx.ok(result.data, { cta: result.cta })
+        if (result && typeof result === 'object' && 'success' in result) {
+          const r = result as ErrorResult | { success: true; data: TOutput; cta?: CtaSpec }
+          if (!r.success) {
+            return ctx.error(r.error as { code: string; message: string; retryable?: boolean; cta?: CtaSpec })
+          }
+          return r.cta ? ctx.ok(r.data, { cta: r.cta }) : ctx.ok(r.data)
         }
 
-        return ctx.ok(result.data)
+        return ctx.error({
+          code: 'UNKNOWN_ERROR',
+          message: 'Invalid command result',
+          retryable: true,
+        })
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error occurred'
         return ctx.error({

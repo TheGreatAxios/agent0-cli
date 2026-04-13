@@ -1,7 +1,7 @@
 {
-  "name": "agent0-cli",
-  "version": "1.0.1",
-  "description": "CLI for agent0-ts SDK - agent portability, discovery and trust",
+  "name": "agent-cli",
+  "version": "0.1.1",
+  "description": "Agent CLI - agent portability, discovery and trust",
   "type": "module",
   "main": "dist/cli.js",
   "module": "dist/cli.js",

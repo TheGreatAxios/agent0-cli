@@ -42,30 +42,6 @@ bunx agent0-cli
 # Or use the standalone executable (see below)
 ```
 
-### Standalone Executable
-
-Download pre-built executables for your platform (no runtime required):
-
-```bash
-# macOS (Apple Silicon)
-curl -L https://github.com/thegreataxios/agent0-cli/releases/latest/download/ag0-darwin-arm64 -o ag0
-chmod +x ag0
-
-# macOS (Intel)
-curl -L https://github.com/thegreataxios/agent0-cli/releases/latest/download/ag0-darwin-x64 -o ag0
-chmod +x ag0
-
-# Linux (x64)
-curl -L https://github.com/thegreataxios/agent0-cli/releases/latest/download/ag0-linux-x64 -o ag0
-chmod +x ag0
-
-# Linux (ARM64)
-curl -L https://github.com/thegreataxios/agent0-cli/releases/latest/download/ag0-linux-arm64 -o ag0
-chmod +x ag0
-
-# Windows (x64) - Download from releases page
-```
-
 ## Quick Start
 
 ### 1. Configure Wallet

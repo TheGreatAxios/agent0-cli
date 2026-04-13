@@ -22,10 +22,17 @@ const mcpTools = createCommand({
     tools: z.array(z.object({ name: z.string(), description: z.string() })),
   }),
   requireSdk: true,
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const agent = await vars.sdk!.getAgent(args['agent-id'])
-      
+      if (!agent) {
+        return createError({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent "${args['agent-id']}" not found`,
+          retryable: false,
+        })
+      }
+
       if (!agent.mcp) {
         return missingEndpoint('MCP')
       }
@@ -54,9 +61,16 @@ const mcpPrompts = createCommand({
     prompts: z.array(z.object({ name: z.string(), description: z.string() })),
   }),
   requireSdk: true,
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const agent = await vars.sdk!.getAgent(args['agent-id'])
+      if (!agent) {
+        return createError({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent "${args['agent-id']}" not found`,
+          retryable: false,
+        })
+      }
 
       if (!agent.mcp) {
         return missingEndpoint('MCP')
@@ -86,9 +100,16 @@ const mcpResources = createCommand({
     resources: z.array(z.object({ uri: z.string(), name: z.string() })),
   }),
   requireSdk: true,
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const agent = await vars.sdk!.getAgent(args['agent-id'])
+      if (!agent) {
+        return createError({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent "${args['agent-id']}" not found`,
+          retryable: false,
+        })
+      }
 
       if (!agent.mcp) {
         return missingEndpoint('MCP')
@@ -118,14 +139,13 @@ const mcpCall = createCommand({
   }),
   output: z.object({ success: z.boolean(), tool: z.string(), result: z.unknown() }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, options, ok }) => {
     try {
-      let params = {}
       if (options.params) {
-        params = JSON.parse(options.params)
+        JSON.parse(options.params)
       } else if (options['params-file']) {
         const { readFile } = await import('fs/promises')
-        params = JSON.parse(await readFile(options['params-file'], 'utf-8'))
+        JSON.parse(await readFile(options['params-file'], 'utf-8'))
       }
 
       // Would call actual MCP tool here

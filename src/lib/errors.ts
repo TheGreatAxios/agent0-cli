@@ -1,10 +1,9 @@
 /**
  * Error Handling
- * 
+ *
  * Centralized error factory and handling patterns
  */
 
-import type { CliContext } from 'incur'
 import { ERROR_CODES, type ErrorCode, type ErrorResult, type CtaSpec } from '../types/index.js'
 
 interface ErrorOptions {
@@ -18,14 +17,17 @@ interface ErrorOptions {
  * Create standardized error result
  */
 export function createError(options: ErrorOptions): ErrorResult {
+  const error: ErrorResult['error'] = {
+    code: options.code || ERROR_CODES.UNKNOWN_ERROR,
+    message: options.message,
+    retryable: options.retryable ?? true,
+  }
+  if (options.cta !== undefined) {
+    error.cta = options.cta
+  }
   return {
     success: false,
-    error: {
-      code: options.code || ERROR_CODES.UNKNOWN_ERROR,
-      message: options.message,
-      retryable: options.retryable ?? true,
-      cta: options.cta,
-    },
+    error,
   }
 }
 
@@ -103,22 +105,4 @@ export function wrapSdkError(error: unknown, code?: ErrorCode): ErrorResult {
     message,
     retryable: true,
   })
-}
-
-/**
- * Result wrapper for incur context
- */
-export function wrapResult<T>(
-  context: CliContext<unknown>,
-  result: ErrorResult | { success: true; data: T; cta?: CtaSpec }
-): { success: boolean; data?: T; error?: ErrorResult['error'] } {
-  if (!result.success) {
-    return context.error(result.error)
-  }
-  
-  if (result.cta) {
-    return context.ok(result.data, { cta: result.cta })
-  }
-  
-  return context.ok(result.data)
 }

@@ -1,81 +1,106 @@
 /**
  * SDK Factory
- * 
+ *
  * Clean, configurable SDK instantiation
  */
 
-import { SDK } from 'agent0-sdk'
+import { SDK, type SDKConfig } from 'agent0-sdk'
 import type { ConfigManager } from './config.js'
 import type { ResolvedWallet } from './wallet.js'
-import { SUBGRAPH_URLS, IPFS_PROVIDERS, type IpfsProvider, DEFAULT_CHAIN_ID } from '../types/index.js'
+import { SUBGRAPH_URLS, type IpfsProvider, DEFAULT_CHAIN_ID } from '../types/index.js'
 
 // ============================================================================
 // SDK Configuration Builder
 // ============================================================================
 
-interface SdkConfig {
-  chainId: number
-  ipfs: IpfsProvider
-  privateKey?: string
-  walletProvider?: unknown
-  pinataJwt?: string
-  filecoinPrivateKey?: string
-  ipfsNodeUrl?: string
-  subgraphUrl?: string
+function mapIpfsProvider(provider: IpfsProvider | undefined): NonNullable<SDKConfig['ipfs']> {
+  switch (provider) {
+    case 'filecoin':
+      return 'filecoinPin'
+    case 'helia':
+      return 'helia'
+    case 'node':
+      return 'node'
+    case 'http':
+      return 'helia'
+    case 'pinata':
+    default:
+      return 'pinata'
+  }
 }
 
 class SdkConfigBuilder {
-  private config: Partial<SdkConfig> = {}
+  private config: Partial<SDKConfig> = {}
 
   withChain(chainId?: number): this {
-    this.config.chainId = chainId || DEFAULT_CHAIN_ID
+    this.config.chainId = chainId ?? DEFAULT_CHAIN_ID
     return this
   }
 
   withIpfs(provider?: IpfsProvider): this {
-    this.config.ipfs = provider || 'pinata'
+    this.config.ipfs = mapIpfsProvider(provider)
     return this
   }
 
   withWallet(wallet: ResolvedWallet | null): this {
-    if (wallet?.source !== 'readonly') {
-      // Extract private key from env (wallet already validated)
-      this.config.privateKey = process.env.AGENT0_PRIVATE_KEY
+    const pk = process.env.AGENT0_PRIVATE_KEY
+    if (wallet && pk) {
+      this.config.privateKey = pk
     }
     return this
   }
 
   withCredentials(config: ConfigManager): this {
-    // Add provider-specific credentials
-    switch (this.config.ipfs) {
-      case 'pinata':
-        this.config.pinataJwt = this.getCredential(config, 'pinataJwt', 'PINATA_JWT')
-        break
-      case 'filecoin':
-        this.config.filecoinPrivateKey = this.getCredential(config, 'filecoinPrivateKey', 'FILECOIN_PRIVATE_KEY')
-        break
+    let ipfs = this.config.ipfs ?? 'pinata'
+    if (ipfs === 'pinata') {
+      const jwt = (config.get('pinataJwt') as string | undefined) || process.env.PINATA_JWT
+      if (jwt) {
+        this.config.pinataJwt = jwt
+      } else {
+        // Allow read-only / discovery usage without Pinata credentials
+        ipfs = 'helia'
+        this.config.ipfs = 'helia'
+      }
     }
-
-    if (this.config.ipfs === 'node') {
-      this.config.ipfsNodeUrl = this.getCredential(config, 'ipfsNodeUrl', 'IPFS_NODE_URL')
+    if (ipfs === 'filecoinPin') {
+      const fk = (config.get('filecoinPrivateKey') as string | undefined) || process.env.FILECOIN_PRIVATE_KEY
+      if (fk) this.config.filecoinPrivateKey = fk
     }
-
+    if (ipfs === 'node') {
+      const url = (config.get('ipfsNodeUrl') as string | undefined) || process.env.IPFS_NODE_URL
+      if (url) this.config.ipfsNodeUrl = url
+    }
     return this
   }
 
   withSubgraph(config: ConfigManager): this {
-    // Priority: custom config > default for chain > undefined
     const customUrl = config.get('subgraphUrl') as string | undefined
-    this.config.subgraphUrl = customUrl || SUBGRAPH_URLS[this.config.chainId!]
+    const chainId = this.config.chainId ?? DEFAULT_CHAIN_ID
+    const url = customUrl || SUBGRAPH_URLS[chainId]
+    if (url) this.config.subgraphUrl = url
     return this
   }
 
-  private getCredential(config: ConfigManager, configKey: string, envKey: string): string | undefined {
-    return (config.get(configKey) as string | undefined) || process.env[envKey]
+  withRpc(): this {
+    const rpc = process.env.RPC_URL
+    if (rpc) this.config.rpcUrl = rpc
+    return this
   }
 
-  build(): SdkConfig {
-    return this.config as SdkConfig
+  build(): SDKConfig {
+    const chainId = this.config.chainId ?? DEFAULT_CHAIN_ID
+    const ipfs = this.config.ipfs ?? mapIpfsProvider(undefined)
+    const out: SDKConfig = {
+      chainId,
+      ipfs,
+    }
+    if (this.config.privateKey !== undefined) out.privateKey = this.config.privateKey
+    if (this.config.pinataJwt !== undefined) out.pinataJwt = this.config.pinataJwt
+    if (this.config.filecoinPrivateKey !== undefined) out.filecoinPrivateKey = this.config.filecoinPrivateKey
+    if (this.config.ipfsNodeUrl !== undefined) out.ipfsNodeUrl = this.config.ipfsNodeUrl
+    if (this.config.subgraphUrl !== undefined) out.subgraphUrl = this.config.subgraphUrl
+    if (this.config.rpcUrl !== undefined) out.rpcUrl = this.config.rpcUrl
+    return out
   }
 }
 
@@ -90,9 +115,10 @@ export function createSdk(config: ConfigManager, wallet: ResolvedWallet | null):
     .withWallet(wallet)
     .withCredentials(config)
     .withSubgraph(config)
+    .withRpc()
     .build()
 
-  return new SDK(sdkConfig as Record<string, unknown>)
+  return new SDK(sdkConfig)
 }
 
 // ============================================================================

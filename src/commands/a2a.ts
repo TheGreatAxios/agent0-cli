@@ -1,11 +1,11 @@
 /**
  * A2A Commands
- * 
+ *
  * Refactored with endpoint validation
  */
 
 import { z } from 'zod'
-import { createCommand, createGroup, CTAS, AgentIdArg, PaginationOptions } from '../lib/commands.js'
+import { createCommand, createGroup, AgentIdArg, PaginationOptions } from '../lib/commands.js'
 import { wrapSdkError, missingEndpoint, createError } from '../lib/errors.js'
 
 // ============================================================================
@@ -22,9 +22,16 @@ const a2aMessage = createCommand({
   }),
   output: z.object({ success: z.boolean(), messageId: z.string().optional() }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const agent = await vars.sdk!.getAgent(args['agent-id'])
+      if (!agent) {
+        return createError({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent "${args['agent-id']}" not found`,
+          retryable: false,
+        })
+      }
 
       if (!agent.a2a) {
         return missingEndpoint('A2A')
@@ -49,9 +56,16 @@ const a2aTasks = createCommand({
     tasks: z.array(z.object({ id: z.string(), status: z.string() })),
   }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const agent = await vars.sdk!.getAgent(args['agent-id'])
+      if (!agent) {
+        return createError({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent "${args['agent-id']}" not found`,
+          retryable: false,
+        })
+      }
 
       if (!agent.a2a) {
         return missingEndpoint('A2A')
@@ -70,9 +84,16 @@ const a2aTask = createCommand({
   args: AgentIdArg.extend({ 'task-id': z.string() }),
   output: z.object({ id: z.string(), status: z.string() }),
   requireSdk: true,
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars }) => {
     try {
       const agent = await vars.sdk!.getAgent(args['agent-id'])
+      if (!agent) {
+        return createError({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent "${args['agent-id']}" not found`,
+          retryable: false,
+        })
+      }
 
       if (!agent.a2a) {
         return missingEndpoint('A2A')
@@ -99,9 +120,16 @@ const a2aCreateTask = createCommand({
   }),
   output: z.object({ success: z.boolean(), taskId: z.string(), status: z.string() }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const agent = await vars.sdk!.getAgent(args['agent-id'])
+      if (!agent) {
+        return createError({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent "${args['agent-id']}" not found`,
+          retryable: false,
+        })
+      }
 
       if (!agent.a2a) {
         return missingEndpoint('A2A')

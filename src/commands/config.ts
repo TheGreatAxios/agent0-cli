@@ -5,9 +5,8 @@
  */
 
 import { z } from 'zod'
-import { Cli } from 'incur'
 import { createCommand, createGroup, CTAS, CommonOptions } from '../lib/commands.js'
-import { resolveWallet, addWallet, listWallets, removeWallet, setDefaultWallet } from '../lib/wallet.js'
+import { addWallet, listWallets, removeWallet, setDefaultWallet } from '../lib/wallet.js'
 import { CHAINS, IPFS_PROVIDERS } from '../types/index.js'
 import { createError } from '../lib/errors.js'
 
@@ -102,7 +101,7 @@ const walletRemove = createCommand({
   description: 'Remove a wallet',
   args: z.object({ name: z.string() }),
   output: z.object({ success: z.boolean(), name: z.string() }),
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     const success = await removeWallet(vars.config, args.name)
     if (!success) {
       return createError({
@@ -120,7 +119,7 @@ const walletSetDefault = createCommand({
   description: 'Set default wallet',
   args: z.object({ name: z.string() }),
   output: z.object({ success: z.boolean(), name: z.string() }),
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     if (!listWallets(vars.config).includes(args.name)) {
       return createError({
         code: 'WALLET_NOT_FOUND',
@@ -187,16 +186,14 @@ const configShow = createCommand({
     subgraphUrl: z.string().optional(),
     wallets: z.array(z.string()),
   }),
-  run: async ({ vars, ok }) => ({
-    success: true,
-    data: {
-      chainId: vars.config.get('chainId'),
-      ipfsProvider: vars.config.get('ipfsProvider'),
-      defaultWallet: vars.config.get('defaultWallet'),
-      subgraphUrl: vars.config.get('subgraphUrl'),
+  run: async ({ vars, ok }) =>
+    ok({
+      chainId: vars.config.get('chainId') as number | undefined,
+      ipfsProvider: vars.config.get('ipfsProvider') as string | undefined,
+      defaultWallet: vars.config.get('defaultWallet') as string | undefined,
+      subgraphUrl: vars.config.get('subgraphUrl') as string | undefined,
       wallets: listWallets(vars.config),
-    },
-  }),
+    }),
 })
 
 // ============================================================================

@@ -4,7 +4,7 @@
  * Single source of truth for all types, constants, and configurations
  */
 
-import type { z } from 'zod'
+import { z } from 'zod'
 import type { SDK } from 'agent0-sdk'
 import type { ConfigManager } from '../lib/config.js'
 import type { ResolvedWallet } from '../lib/wallet.js'
@@ -127,7 +127,15 @@ export type CommandResult<T = unknown> = SuccessResult<T> | ErrorResult
 
 export interface CtaSpec {
   description: string
-  commands: Array<{ command: string; args?: Record<string, unknown>; options?: Record<string, unknown> } | string>
+  commands: Array<
+    | string
+    | {
+        command: string
+        args?: Record<string, unknown>
+        options?: Record<string, unknown>
+        description?: string
+      }
+  >
 }
 
 // ============================================================================

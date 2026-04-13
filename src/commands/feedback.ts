@@ -1,12 +1,13 @@
 /**
  * Feedback Commands
- * 
+ *
  * Refactored with unified feedback patterns
  */
 
+import type { Feedback, FeedbackFileInput, FeedbackSearchFilters, FeedbackSearchOptions } from 'agent0-sdk'
 import { z } from 'zod'
 import { createCommand, createGroup, CTAS, AgentIdArg, PaginationOptions } from '../lib/commands.js'
-import { createError, wrapSdkError } from '../lib/errors.js'
+import { wrapSdkError } from '../lib/errors.js'
 
 // ============================================================================
 // Schemas
@@ -33,6 +34,15 @@ const ListFeedbackOptions = PaginationOptions.extend({
   capabilities: z.array(z.string()).optional(),
 })
 
+function buildFeedbackFileInput(options: z.infer<typeof GiveFeedbackOptions>): FeedbackFileInput | undefined {
+  if (!options.text && !options['mcp-tool'] && !options['a2a-skills']) return undefined
+  const input: FeedbackFileInput = {}
+  if (options.text !== undefined) input.text = options.text
+  if (options['mcp-tool'] !== undefined) input.mcpTool = options['mcp-tool']
+  if (options['a2a-skills'] !== undefined) input.a2aSkills = options['a2a-skills']
+  return input
+}
+
 // ============================================================================
 // Commands
 // ============================================================================
@@ -50,16 +60,10 @@ const feedbackGive = createCommand({
     agentId: z.string(),
   }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, options, vars, ok }) => {
     try {
-      // Prepare off-chain feedback file if rich fields provided
-      const feedbackFile = (options.text || options['mcp-tool'] || options['a2a-skills'])
-        ? vars.sdk!.prepareFeedbackFile({
-            text: options.text,
-            mcpTool: options['mcp-tool'],
-            a2aSkills: options['a2a-skills'],
-          })
-        : undefined
+      const feedbackFileInput = buildFeedbackFileInput(options)
+      const feedbackFile = feedbackFileInput ? vars.sdk!.prepareFeedbackFile(feedbackFileInput) : undefined
 
       const tx = await vars.sdk!.giveFeedback(
         args['agent-id'],
@@ -70,28 +74,25 @@ const feedbackGive = createCommand({
         feedbackFile
       )
 
-      let result: { success: true; data: { success: boolean; feedbackId?: string; txHash?: string; value: number; agentId: string }; cta: import('../types/index.js').CtaSpec }
-
       if (options['wait-confirmed']) {
         const confirmed = await tx.waitConfirmed({ timeoutMs: 180000 })
-        result = ok(
+        const fid = confirmed.result?.id
+        return ok(
           {
             success: true,
-            feedbackId: confirmed.result?.id,
-            txHash: confirmed.receipt?.transactionHash,
+            feedbackId: typeof fid === 'string' ? fid : JSON.stringify(fid),
+            txHash: confirmed.receipt.transactionHash,
             value: args.value,
             agentId: args['agent-id'],
           },
           { cta: CTAS.afterFeedback(args['agent-id']) }
         )
-      } else {
-        result = ok(
-          { success: true, txHash: tx.hash, value: args.value, agentId: args['agent-id'] },
-          { cta: CTAS.afterFeedback(args['agent-id']) }
-        )
       }
 
-      return result
+      return ok(
+        { success: true, txHash: tx.hash, value: args.value, agentId: args['agent-id'] },
+        { cta: CTAS.afterFeedback(args['agent-id']) }
+      )
     } catch (err) {
       return wrapSdkError(err, 'FEEDBACK_ERROR')
     }
@@ -115,29 +116,27 @@ const feedbackList = createCommand({
     })),
   }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, options, vars, ok }) => {
     try {
-      const filters: Record<string, unknown> = { agentId: args['agent-id'] }
-
-      if (options['min-value'] !== undefined || options['max-value'] !== undefined) {
-        filters.minValue = options['min-value']
-        filters.maxValue = options['max-value']
-      }
-
+      const filters: FeedbackSearchFilters = { agentId: args['agent-id'] }
       if (options['include-revoked']) filters.includeRevoked = true
       if (options.capabilities) filters.capabilities = options.capabilities
 
-      const results = await vars.sdk!.searchFeedback(filters)
+      const searchOpts: FeedbackSearchOptions = {}
+      if (options['min-value'] !== undefined) searchOpts.minValue = options['min-value']
+      if (options['max-value'] !== undefined) searchOpts.maxValue = options['max-value']
+
+      const results = await vars.sdk!.searchFeedback(filters, searchOpts)
 
       return ok({
         count: results.length,
-        feedbacks: results.map((fb: Record<string, unknown>) => ({
-          id: fb.id as string,
-          reviewer: fb.reviewer as string,
-          value: fb.value as number,
-          tag1: fb.tag1 as string | undefined,
-          tag2: fb.tag2 as string | undefined,
-          timestamp: fb.timestamp as number,
+        feedbacks: (results as Feedback[]).map((fb) => ({
+          id: typeof fb.id === 'string' ? fb.id : JSON.stringify(fb.id),
+          reviewer: String(fb.reviewer),
+          value: Number(fb.value ?? 0),
+          tag1: fb.tags[0],
+          tag2: fb.tags[1],
+          timestamp: typeof fb.createdAt === 'number' ? fb.createdAt : Number(fb.createdAt),
         })),
       })
     } catch (err) {
@@ -154,22 +153,16 @@ const feedbackSummary = createCommand({
     agentId: z.string(),
     feedbackCount: z.number(),
     averageValue: z.number(),
-    minValue: z.number(),
-    maxValue: z.number(),
-    distribution: z.record(z.number()),
   }),
   requireSdk: true,
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const summary = await vars.sdk!.getReputationSummary(args['agent-id'])
 
       return ok({
         agentId: args['agent-id'],
-        feedbackCount: summary.feedbackCount || 0,
-        averageValue: summary.averageValue || 0,
-        minValue: summary.minValue || 0,
-        maxValue: summary.maxValue || 0,
-        distribution: summary.distribution || {},
+        feedbackCount: summary.count,
+        averageValue: summary.averageValue,
       })
     } catch (err) {
       return wrapSdkError(err, 'FEEDBACK_ERROR')
@@ -192,17 +185,17 @@ const feedbackGivenBy = createCommand({
     })),
   }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
-      const results = await vars.sdk!.searchFeedback({ reviewers: [args.reviewer] })
+      const results = await vars.sdk!.searchFeedback({ reviewers: [args.reviewer] }, {})
 
       return ok({
         count: results.length,
-        feedbacks: results.map((fb: Record<string, unknown>) => ({
-          id: fb.id as string,
-          agentId: fb.agentId as string,
-          value: fb.value as number,
-          timestamp: fb.timestamp as number,
+        feedbacks: (results as Feedback[]).map((fb) => ({
+          id: typeof fb.id === 'string' ? fb.id : JSON.stringify(fb.id),
+          agentId: String(fb.agentId),
+          value: Number(fb.value ?? 0),
+          timestamp: typeof fb.createdAt === 'number' ? fb.createdAt : Number(fb.createdAt),
         })),
       })
     } catch (err) {

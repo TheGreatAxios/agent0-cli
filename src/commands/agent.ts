@@ -1,7 +1,7 @@
 /**
  * Agent Commands
- * 
- * Refactored with DRY patterns and command factory
+ *
+ * Refactored with DRY patterns
  */
 
 import { z } from 'zod'
@@ -49,16 +49,10 @@ const WalletRotationOptions = z.object({
   'new-private-key': z.string(),
 })
 
-// ============================================================================
-// Helper: Load agent with error handling
-// ============================================================================
-
-async function loadAgentSafe(sdk: NonNullable<import('../types/index.js').CliVars['sdk']>, agentId: string) {
-  try {
-    return await sdk.loadAgent(agentId)
-  } catch {
-    return null
-  }
+function oasfListFromAgent(agent: { getRegistrationFile: () => { metadata?: Record<string, unknown> } }, key: 'oasfSkills' | 'oasfDomains'): string[] {
+  const meta = (agent.getRegistrationFile().metadata ?? {}) as Record<string, unknown>
+  const v = meta[key]
+  return Array.isArray(v) ? (v as string[]) : []
 }
 
 // ============================================================================
@@ -72,7 +66,7 @@ const agentCreate = createCommand({
   options: AgentCreateOptions,
   output: z.object({ agentId: z.string(), name: z.string(), status: z.literal('created') }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, options, vars, ok }) => {
     try {
       const agent = vars.sdk!.createAgent(args.name, args.description || '', options['image-url'])
       return ok(
@@ -92,24 +86,30 @@ const agentRegister = createCommand({
   options: RegisterOptions,
   output: z.object({ agentId: z.string(), agentURI: z.string(), txHash: z.string().optional() }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, options, vars, ok }) => {
     try {
       const agent = await vars.sdk!.loadAgent(args['agent-id'])
-      
-      let result
+
+      let mined
       if (options.http) {
         const tx = await agent.registerHTTP(options.http)
-        result = await tx.waitConfirmed()
+        mined = await tx.waitConfirmed()
       } else if (options['on-chain']) {
         const tx = await agent.registerOnChain()
-        result = await tx.waitConfirmed()
+        mined = await tx.waitConfirmed()
       } else {
-        result = await agent.registerIPFS()
+        const tx = await agent.registerIPFS()
+        mined = await tx.waitConfirmed()
       }
 
+      const reg = mined.result
       return ok(
-        { agentId: result.agentId, agentURI: result.agentURI, txHash: result.txHash },
-        { cta: CTAS.afterRegister(result.agentId) }
+        {
+          agentId: String(reg.agentId ?? args['agent-id']),
+          agentURI: String(reg.agentURI ?? ''),
+          txHash: mined.receipt.transactionHash,
+        },
+        { cta: CTAS.afterRegister(String(reg.agentId ?? args['agent-id'])) }
       )
     } catch (err) {
       return wrapSdkError(err, 'REGISTER_ERROR')
@@ -123,14 +123,15 @@ const agentLoad = createCommand({
   args: AgentIdArg,
   output: z.object({ agentId: z.string(), name: z.string(), description: z.string(), active: z.boolean() }),
   requireSdk: true,
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const agent = await vars.sdk!.loadAgent(args['agent-id'])
+      const rf = agent.getRegistrationFile()
       return ok({
         agentId: agent.agentId || args['agent-id'],
         name: agent.name || 'Unknown',
         description: agent.description || '',
-        active: agent.active || false,
+        active: rf.active,
       })
     } catch (err) {
       return wrapSdkError(err, 'LOAD_ERROR')
@@ -152,14 +153,21 @@ const agentShow = createCommand({
     domains: z.array(z.string()),
   }),
   requireSdk: true,
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const agent = await vars.sdk!.getAgent(args['agent-id'])
+      if (!agent) {
+        return createError({
+          code: 'AGENT_NOT_FOUND',
+          message: `Agent "${args['agent-id']}" not found`,
+          retryable: false,
+        })
+      }
       return ok({
         agentId: agent.agentId || args['agent-id'],
         name: agent.name || 'Unknown',
         description: agent.description || '',
-        active: agent.active || false,
+        active: agent.active,
         endpoints: {
           mcp: agent.mcp,
           a2a: agent.a2a,
@@ -180,7 +188,7 @@ const agentSetMcp = createCommand({
   args: EndpointArgs,
   output: z.object({ success: z.boolean(), endpoint: z.string(), tools: z.array(z.string()).optional() }),
   requireSdk: true,
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const agent = await vars.sdk!.loadAgent(args['agent-id'])
       await agent.setMCP(args.endpoint)
@@ -197,7 +205,7 @@ const agentSetA2a = createCommand({
   args: EndpointArgs,
   output: z.object({ success: z.boolean(), endpoint: z.string(), skills: z.array(z.string()).optional() }),
   requireSdk: true,
-  run: async ({ args, vars, ok, error }) => {
+  run: async ({ args, vars, ok }) => {
     try {
       const agent = await vars.sdk!.loadAgent(args['agent-id'])
       await agent.setA2A(args.endpoint)
@@ -215,11 +223,11 @@ const agentAddSkill = createCommand({
   options: z.object({ validate: z.boolean().default(true) }),
   output: z.object({ success: z.boolean(), skill: z.string(), skills: z.array(z.string()) }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, options, vars, ok }) => {
     try {
       const agent = await vars.sdk!.loadAgent(args['agent-id'])
       agent.addSkill(args.skill, options.validate)
-      return ok({ success: true, skill: args.skill, skills: agent.oasfSkills || [] })
+      return ok({ success: true, skill: args.skill, skills: oasfListFromAgent(agent, 'oasfSkills') })
     } catch (err) {
       return wrapSdkError(err)
     }
@@ -233,11 +241,11 @@ const agentAddDomain = createCommand({
   options: z.object({ validate: z.boolean().default(true) }),
   output: z.object({ success: z.boolean(), domain: z.string(), domains: z.array(z.string()) }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, options, vars, ok }) => {
     try {
       const agent = await vars.sdk!.loadAgent(args['agent-id'])
       agent.addDomain(args.domain, options.validate)
-      return ok({ success: true, domain: args.domain, domains: agent.oasfDomains || [] })
+      return ok({ success: true, domain: args.domain, domains: oasfListFromAgent(agent, 'oasfDomains') })
     } catch (err) {
       return wrapSdkError(err)
     }
@@ -251,7 +259,7 @@ const agentSetTrust = createCommand({
   options: TrustOptions,
   output: z.object({ success: z.boolean(), trust: z.object({ reputation: z.boolean(), cryptoEconomic: z.boolean(), tee: z.boolean() }) }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, options, vars, ok }) => {
     try {
       const agent = await vars.sdk!.loadAgent(args['agent-id'])
       agent.setTrust(
@@ -280,7 +288,7 @@ const agentSetWallet = createCommand({
   options: WalletRotationOptions,
   output: z.object({ success: z.boolean(), address: z.string() }),
   requireSdk: true,
-  run: async ({ args, options, vars, ok, error }) => {
+  run: async ({ args, options, vars, ok }) => {
     if (!options['new-private-key']) {
       return createError({
         code: 'MISSING_REQUIRED',
@@ -291,7 +299,9 @@ const agentSetWallet = createCommand({
 
     try {
       const agent = await vars.sdk!.loadAgent(args['agent-id'])
-      await agent.setWallet(args.address, { newWalletPrivateKey: options['new-private-key'] })
+      await agent.setWallet(args.address as `0x${string}`, {
+        newWalletPrivateKey: options['new-private-key'],
+      })
       return ok({ success: true, address: args.address })
     } catch (err) {
       return wrapSdkError(err)
